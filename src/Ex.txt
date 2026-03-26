@@ -1,0 +1,283 @@
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <driver/gpio.h>
+#include <stdio.h>
+
+
+#define ESP_INR_FLAG_DEFAULT 0
+#define CONFIG_BUTTON_PIN 0
+#define CONFIG_LED_PIN 2
+
+
+#define Green_pin
+#define Red_pin
+#define Yellow_pin
+
+typedef enum 
+{
+    Red,
+    Yellow,
+    Green,
+} TrafficLight; 
+
+
+struct ledstuff
+{
+    // gpio_num_t pin;
+    // int blinkRatems;
+    // TrafficLight color;
+    gpio_num_t _Red_pin;
+    gpio_num_t _Yellow_pin;
+    gpio_num_t _Green_pin;
+    int red_blink;
+    int green_blink;
+    int yellow_blink; 
+}; 
+typedef struct ledstuff ledstuffstruct;
+
+
+TrafficLight current;
+TrafficLight current2; 
+
+
+//GPIO_0 is the button on our board 
+TaskHandle_t ISR = NULL;
+
+// void blinktask(void *parameters)
+// {
+//     ledstuffstruct *data = (ledstuffstruct *)parameters;
+//     gpio_num_t mypin = data->pin;
+//     int delay = data->blinkRatems;
+//     TrafficLight currentColor = data->color; 
+//     while (1) {
+
+//         if(currentColor == current){
+//              gpio_set_level(mypin, 1);
+//              vTaskDelay(delay / portTICK_PERIOD_MS);
+//              gpio_set_level(mypin, 0);
+//              vTaskDelay(delay / portTICK_PERIOD_MS);
+//         }
+//     }
+// }
+
+void trafficTask(void *parameters)
+{
+    ledstuffstruct *data = (ledstuffstruct *)parameters;
+    gpio_num_t greenpin = data->_Green_pin;
+    gpio_num_t yellowpin = data->_Yellow_pin;
+    gpio_num_t Redpin = data->_Red_pin;
+    int Green_delay = data->green_blink;
+    int Yellow_delay = data -> yellow_blink;
+    int Red_delay = data -> red_blink;
+
+    while (1) {
+        switch(current){
+            case Green: 
+             gpio_set_level(greenpin, 1);
+             vTaskDelay(Green_delay / portTICK_PERIOD_MS);
+             gpio_set_level(greenpin, 0);
+             vTaskDelay(Green_delay / portTICK_PERIOD_MS);
+             break;
+            case Yellow: 
+             gpio_set_level(yellowpin, 1);
+             vTaskDelay(Yellow_delay / portTICK_PERIOD_MS);
+             gpio_set_level(yellowpin, 0);
+             vTaskDelay(Yellow_delay / portTICK_PERIOD_MS);
+             break;
+            case Red: 
+             gpio_set_level(Redpin, 1);
+             vTaskDelay(Red_delay / portTICK_PERIOD_MS);
+             gpio_set_level(Redpin, 0);
+             vTaskDelay(Red_delay / portTICK_PERIOD_MS);
+             break;
+        }
+    }
+}
+
+
+void IRAM_ATTR button_isr_handler(void *arg)
+{
+    xTaskResumeFromISR(ISR);
+}
+
+///EDIT THIS ADD STUFF TO IT 
+void IRAM_ATTR RED_irs_handler(void *arg)
+{
+     ///after red goes green 
+     current = Green;
+    //  current2 = Green; 
+}
+
+void IRAM_ATTR Yellow_irs_handler(void *arg)
+{
+    //after yellow goes red
+    current = Red;
+    // current2 = Red; 
+}
+
+void IRAM_ATTR Green_irs_handler(void *arg)
+{
+    //after green goes yellow 
+    current = Yellow;
+    // current2 = Yellow; 
+}
+
+
+
+void button_task(void *arg)
+{
+    bool led_status = false; 
+    while (1){
+        vTaskSuspend(NULL);
+        led_status = true; 
+        gpio_set_level(CONFIG_LED_PIN,led_status);
+        printf("Button pressed! \n");
+    }
+}
+
+// void setup_task(ledstuffstruct *ledinfo) {
+//     // Create the task for the specified LED
+//     xTaskCreate(blinktask, "Blink Task", 2048, ledinfo, 5, NULL);
+// }
+
+void setup_trafficLights(ledstuffstruct *traffic_light_info) {
+    xTaskCreate(trafficTask, "TrafficLightsFunction", 2048, traffic_light_info, 5, NULL);
+}
+
+void app_main()
+{
+
+    current = Green; 
+    // current2 = Red; 
+    ///Setting up the PINS 
+    //seting up the traffic lights  --> INPUT AND OUTPUT B/C WE ARE GOING TO USE OUTPUT FOR LIGHTING AND INPUT FOR INTERRUPT
+    gpio_set_direction(GPIO_NUM_27, GPIO_MODE_INPUT_OUTPUT);
+    gpio_set_direction(GPIO_NUM_26, GPIO_MODE_INPUT_OUTPUT);
+    gpio_set_direction(GPIO_NUM_25, GPIO_MODE_INPUT_OUTPUT);
+
+    ///other side of traffic lights 
+    gpio_set_direction(GPIO_NUM_19, GPIO_MODE_INPUT_OUTPUT);
+    gpio_set_direction(GPIO_NUM_18, GPIO_MODE_INPUT_OUTPUT);
+    gpio_set_direction(GPIO_NUM_4, GPIO_MODE_INPUT_OUTPUT);
+  
+    // ///////Any edge triggers
+    gpio_set_intr_type(GPIO_NUM_26, GPIO_INTR_NEGEDGE); 
+    gpio_set_intr_type(GPIO_NUM_27, GPIO_INTR_NEGEDGE);
+    gpio_set_intr_type(GPIO_NUM_25, GPIO_INTR_NEGEDGE); 
+
+    gpio_set_intr_type(GPIO_NUM_19, GPIO_INTR_NEGEDGE); 
+    gpio_set_intr_type(GPIO_NUM_18, GPIO_INTR_NEGEDGE);
+    gpio_set_intr_type(GPIO_NUM_4, GPIO_INTR_NEGEDGE); 
+
+
+    // ///Interrupt stuff
+    gpio_install_isr_service(ESP_INR_FLAG_DEFAULT);
+
+    //esp_rom_gpio_pad_select_gpio(CONFIG_BUTTON_PIN);
+    //esp_rom_gpio_pad_select_gpio(CONFIG_LED_PIN);
+
+    gpio_set_direction(CONFIG_BUTTON_PIN,GPIO_MODE_INPUT);
+    gpio_set_direction(CONFIG_LED_PIN,GPIO_MODE_OUTPUT);
+    gpio_set_intr_type(CONFIG_BUTTON_PIN,GPIO_INTR_NEGEDGE);
+
+
+    gpio_isr_handler_add(CONFIG_BUTTON_PIN,button_isr_handler,NULL);
+    xTaskCreate(button_task, "button_task1", 4096, NULL, 10, &ISR); 
+
+    //////interrupt stuff
+
+///////////////////////////////////////////////////////////////////
+
+    ///The blinking functions where we establish blinking for the pins 
+    //ledstuffstruct ledinfo;
+
+    ledstuffstruct *TrafficSet1 = malloc(sizeof(ledstuffstruct));
+    TrafficSet1->_Green_pin = GPIO_NUM_27;
+    TrafficSet1->_Yellow_pin = GPIO_NUM_26;
+    TrafficSet1->_Red_pin = GPIO_NUM_25;
+    TrafficSet1 -> green_blink = 2000; 
+    TrafficSet1 -> yellow_blink = 1000; 
+    TrafficSet1->red_blink = 2000;
+
+    setup_trafficLights(TrafficSet1);
+
+    gpio_isr_handler_add(TrafficSet1->_Green_pin, Green_irs_handler, NULL);
+    gpio_isr_handler_add(TrafficSet1->_Yellow_pin, Yellow_irs_handler, NULL);
+    gpio_isr_handler_add(TrafficSet1->_Red_pin, RED_irs_handler, NULL);
+
+
+    // ledstuffstruct *green_led_info = malloc(sizeof(ledstuffstruct));
+    // green_led_info->pin = GPIO_NUM_27;
+    // green_led_info->blinkRatems = 2000;
+    // green_led_info->color = Green;
+    // gpio_isr_handler_add(green_led_info->pin, Green_irs_handler, NULL);
+
+    // ledstuffstruct *yellow_led_info = malloc(sizeof(ledstuffstruct));
+    // yellow_led_info->pin = GPIO_NUM_26;
+    // yellow_led_info->blinkRatems = 1000;
+    // yellow_led_info->color = Yellow;
+    // gpio_isr_handler_add(yellow_led_info->pin, Yellow_irs_handler, NULL);
+
+    // ledstuffstruct *Red_led_info = malloc(sizeof(ledstuffstruct));
+    // Red_led_info->pin = GPIO_NUM_25;
+    // Red_led_info->blinkRatems = 2000;
+    // Red_led_info->color = Red;
+    // // ledinfo.pin = GPIO_NUM_25;
+    // // ledinfo.blinkRatems = 500;
+    // // ledinfo.color = Red; 
+    // //xTaskCreate(blinktask,"RedLED", 2048, &ledinfo, 5, NULL);
+    // gpio_isr_handler_add(Red_led_info->pin, RED_irs_handler, NULL);
+
+    
+    gpio_intr_enable(GPIO_NUM_27);
+    gpio_intr_enable(GPIO_NUM_26);
+    gpio_intr_enable(GPIO_NUM_25);
+
+    // setup_task(green_led_info);
+    // setup_task(yellow_led_info);
+    // setup_task(Red_led_info);
+    
+    ///This is the other side 
+    // ledstuffstruct *green_led_info2 = malloc(sizeof(ledstuffstruct));
+    // green_led_info->pin = GPIO_NUM_19;
+    // green_led_info->blinkRatems = 2000;
+    // green_led_info->color = Green;
+    // gpio_isr_handler_add(green_led_info->pin, Green_irs_handler, NULL);
+
+    // ledstuffstruct *yellow_led_info2 = malloc(sizeof(ledstuffstruct));
+    // yellow_led_info->pin = GPIO_NUM_18;
+    // yellow_led_info->blinkRatems = 1000;
+    // yellow_led_info->color = Yellow;
+    // gpio_isr_handler_add(yellow_led_info->pin, Yellow_irs_handler, NULL);
+
+    // ledstuffstruct *Red_led_info2 = malloc(sizeof(ledstuffstruct));
+    // Red_led_info->pin = GPIO_NUM_4;
+    // Red_led_info->blinkRatems = 2000;
+    // Red_led_info->color = Red;
+    // gpio_isr_handler_add(Red_led_info->pin, RED_irs_handler, NULL);
+
+    // gpio_intr_enable(GPIO_NUM_19);
+    // gpio_intr_enable(GPIO_NUM_18);
+    // gpio_intr_enable(GPIO_NUM_4);
+
+    // setup_task2(green_led_info2);
+    // setup_task2(yellow_led_info2);
+    // setup_task2(Red_led_info2);
+
+
+    while (1)
+    {
+     
+        ///original 
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+
+    }
+
+    // while (1)
+    //  {
+    //      gpio_set_level(GPIO_NUM_27, 1);
+    //      vTaskDelay(100 / portTICK_PERIOD_MS);
+    //      gpio_set_level(GPIO_NUM_27, 0);
+    //      vTaskDelay(500 / portTICK_PERIOD_MS);
+    //  }
+}
